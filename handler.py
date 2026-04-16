@@ -14,7 +14,6 @@ de la instancia Runpod que se apaga al terminar el request.
 """
 import base64
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -25,13 +24,17 @@ from urllib.parse import urlencode
 import httpx
 import runpod
 
-COMFY_DIR    = "/workspace/ComfyUI"
+import os
+
+# Runpod Serverless monta Network Volumes en /runpod-volume (no se puede cambiar).
+# Permitimos override vía env var por si un día cambia o para testing local.
+COMFY_DIR    = os.environ.get("COMFYUI_DIR", "/runpod-volume/ComfyUI")
 COMFY_HOST   = "127.0.0.1"
 COMFY_PORT   = 8188
 COMFY_URL    = f"http://{COMFY_HOST}:{COMFY_PORT}"
 OUTPUT_DIR   = f"{COMFY_DIR}/output"
 STARTUP_LOG  = "/tmp/comfyui_startup.log"
-BOOT_TIMEOUT = 180  # segundos para que ComfyUI arranque
+BOOT_TIMEOUT = 240  # segundos para boot (primera vez carga modelos desde volumen, puede tardar)
 
 _comfy_proc: subprocess.Popen | None = None
 
@@ -54,6 +57,12 @@ def _ensure_comfyui_up() -> None:
 
     if _comfy_proc is None:
         print(f"[boot] launching ComfyUI from {COMFY_DIR}", flush=True)
+        if not pathlib.Path(COMFY_DIR, "main.py").exists():
+            raise FileNotFoundError(
+                f"No encuentro {COMFY_DIR}/main.py. "
+                f"Verificar que el Network Volume esté adjunto y que contenga ComfyUI en la raíz. "
+                f"Contenido /runpod-volume: {list(pathlib.Path('/runpod-volume').glob('*')) if pathlib.Path('/runpod-volume').exists() else 'NO MONTADO'}"
+            )
         log_fd = open(STARTUP_LOG, "w")
         _comfy_proc = subprocess.Popen(
             [sys.executable, "main.py", "--listen", COMFY_HOST, "--port", str(COMFY_PORT), "--disable-auto-launch"],
