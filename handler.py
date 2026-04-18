@@ -34,7 +34,16 @@ COMFY_PORT   = 8188
 COMFY_URL    = f"http://{COMFY_HOST}:{COMFY_PORT}"
 OUTPUT_DIR   = f"{COMFY_DIR}/output"
 STARTUP_LOG  = "/tmp/comfyui_startup.log"
+# Copia persistente del log en el volumen — sobrevive a la muerte del worker
+# para poder diagnosticar fallos de boot desde un pod o filebrowser.
+PERSISTENT_LOG = "/runpod-volume/serverless_startup.log"
 BOOT_TIMEOUT = 240  # segundos para boot (primera vez carga modelos desde volumen, puede tardar)
+
+# El venv del volumen tiene TODOS los paquetes que ComfyUI espera (toml,
+# omegaconf, etc.). Si está disponible, lo usamos. Sino caemos al python
+# del contenedor (que solo tiene los paquetes del Dockerfile).
+_VENV_PY = pathlib.Path(os.environ.get("COMFYUI_PYTHON", "/runpod-volume/venv/bin/python"))
+COMFY_PYTHON = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
 
 _comfy_proc: subprocess.Popen | None = None
 
@@ -56,7 +65,7 @@ def _ensure_comfyui_up() -> None:
         _comfy_proc = None
 
     if _comfy_proc is None:
-        print(f"[boot] launching ComfyUI from {COMFY_DIR}", flush=True)
+        print(f"[boot] launching ComfyUI from {COMFY_DIR} with {COMFY_PYTHON}", flush=True)
         if not pathlib.Path(COMFY_DIR, "main.py").exists():
             raise FileNotFoundError(
                 f"No encuentro {COMFY_DIR}/main.py. "
@@ -65,7 +74,7 @@ def _ensure_comfyui_up() -> None:
             )
         log_fd = open(STARTUP_LOG, "w")
         _comfy_proc = subprocess.Popen(
-            [sys.executable, "main.py", "--listen", COMFY_HOST, "--port", str(COMFY_PORT), "--disable-auto-launch"],
+            [COMFY_PYTHON, "main.py", "--listen", COMFY_HOST, "--port", str(COMFY_PORT), "--disable-auto-launch"],
             cwd=COMFY_DIR,
             stdout=log_fd,
             stderr=subprocess.STDOUT,
@@ -78,7 +87,24 @@ def _ensure_comfyui_up() -> None:
             print(f"[boot] ComfyUI ready after {int(time.time() - (deadline - BOOT_TIMEOUT))}s", flush=True)
             return
         if _comfy_proc.poll() is not None:
-            raise RuntimeError(f"ComfyUI murió durante el boot. Ver {STARTUP_LOG}")
+            # Copiar log al volumen para que el admin pueda leerlo desde su pod
+            try:
+                if pathlib.Path("/runpod-volume").exists() and pathlib.Path(STARTUP_LOG).exists():
+                    import shutil
+                    shutil.copy(STARTUP_LOG, PERSISTENT_LOG)
+            except Exception as _e:
+                print(f"[boot] warn: no pude copiar log a volumen: {_e}", flush=True)
+            # Inline las ultimas lineas del log al error message para diagnostico inmediato
+            tail = ""
+            try:
+                with open(STARTUP_LOG, "r", encoding="utf-8", errors="replace") as f:
+                    tail = "\n".join(f.read().splitlines()[-40:])
+            except Exception:
+                tail = "(no pude leer log)"
+            raise RuntimeError(
+                f"ComfyUI murió durante el boot (python: {COMFY_PYTHON}). "
+                f"Log copiado a {PERSISTENT_LOG}.\n--- últimas líneas ---\n{tail}"
+            )
         time.sleep(2)
 
     raise TimeoutError(f"ComfyUI no respondió en {BOOT_TIMEOUT}s")
