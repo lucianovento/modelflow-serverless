@@ -2,7 +2,7 @@
 ModelFlow — Runpod Serverless Handler
 
 Flujo:
-  1. Cold start: levanta ComfyUI desde /workspace/ComfyUI como subprocess
+  1. Cold start: levanta ComfyUI desde /runpod-volume/ComfyUI como subprocess
   2. Espera a que /system_stats responda
   3. Recibe job input con { workflow, client_id }
   4. Postea el workflow a ComfyUI :8188 /prompt

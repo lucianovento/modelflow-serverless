@@ -1,14 +1,14 @@
 # ModelFlow Serverless Worker — Runpod
 #
 # La imagen NO lleva ComfyUI ni modelos: todo vive en tu Network Volume
-# montado en /workspace/ComfyUI por Runpod. Así la imagen pesa ~2 GB
-# (solo Python + deps del handler + deps core de ComfyUI).
+# montado en /runpod-volume/ComfyUI por Runpod (Serverless fuerza este path).
+# Así la imagen pesa ~2 GB (solo Python + deps del handler + deps core de ComfyUI).
 FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    COMFYUI_DIR=/workspace/ComfyUI
+    COMFYUI_DIR=/runpod-volume/ComfyUI
 
 WORKDIR /
 
